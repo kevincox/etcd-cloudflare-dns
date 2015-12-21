@@ -38,6 +38,7 @@ r.node.children.sort_by{|n| n.key}.each do |n|
 	
 	toremove = records[domain]
 	toremove = if toremove
+		toremove.keep_if{|r| r['type'] == 'A'}
 		toremove.group_by{|r| r['content']}
 	else
 		{}
