@@ -1,11 +1,11 @@
 with import <nixpkgs> {};
 
 stdenv.mkDerivation {
-	name = "api.kevincox.ca-2015-12-02";
+	name = "etcd-cloudflare-dns";
 	
 	meta = {
-		description = "kevincox API";
-		homepage = https://api.kevincox.ca;
+		description = "Keep cloudflare dns records in sync with data in etcd.";
+		homepage = https://kevincox.ca;
 	};
 	
 	src = builtins.filterSource (name: type:
