@@ -4,8 +4,12 @@ require 'uri'
 require 'openssl'
 require 'pp'
 
-require 'cloudflare'
 require 'etcd'
+
+# Major hack because we can't automatically load git gems.
+$LOAD_PATH << "#{ENV['GEM_HOME']}/bundler/gems/cloudflare-91e7182f983b/lib"
+require 'cloudflare'
+
 
 DOMAIN = ENV.delete 'DOMAIN'
 

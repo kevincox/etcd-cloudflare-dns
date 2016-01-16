@@ -9,7 +9,7 @@ stdenv.mkDerivation {
 	};
 	
 	src = builtins.filterSource (name: type:
-		builtins.trace name (lib.hasPrefix (toString ./Gemfile) name) ||
+		(lib.hasPrefix (toString ./Gemfile) name) ||
 		(lib.hasPrefix (toString ./bin) name)
 	) ./.;
 	
