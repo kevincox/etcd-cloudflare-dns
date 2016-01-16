@@ -1,8 +1,13 @@
-GEM
-  remote: https://rubygems.org/
+GIT
+  remote: git://github.com/b4k3r/cloudflare.git
+  revision: 91e7182f983b287f48d1b2aa6614563b6a8394ba
   specs:
     cloudflare (2.0.3)
       json (~> 1)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
     etcd (0.3.0)
       mixlib-log
     json (1.8.3)
@@ -12,7 +17,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  cloudflare (~> 2.0)
+  cloudflare!
   etcd (~> 0.3.0)
 
 BUNDLED WITH
