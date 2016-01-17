@@ -20,7 +20,7 @@ stdenv.mkDerivation {
 	
 	buildPhase = ''
 		bundle install --standalone
-		tree 
+		rm -r bundle/ruby/*/cache/
 	'';
 	
 	installPhase = ''
