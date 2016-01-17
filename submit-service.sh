@@ -14,7 +14,7 @@ Requires=nix-expr@${pkg##*/}.service
 
 [Service]
 Environment=DOMAIN=kevincox.ca
-Environment=GEM_HOME=$pkg/gems
+Environment=RUBYLIB=$pkg/bundle
 EnvironmentFile=/etc/kevincox-environment
 EnvironmentFile=/run/keys/cloudflare
 

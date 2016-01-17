@@ -16,17 +16,16 @@ stdenv.mkDerivation {
 	__noChroot = true;
 	SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
 	
-	buildInputs = [ ruby bundler git ];
+	buildInputs = [ ruby bundler git tree ];
 	
 	buildPhase = ''
-		ls .
-		export 'GEM_HOME=gems/'
-		bundle install
+		bundle install --standalone
+		tree 
 	'';
 	
 	installPhase = ''
 		mkdir -p "$out"
-		cp -rv gems "$out"
+		cp -rv bundle "$out"
 		install -Dm755 bin/etcd-cloudflare-dns.rb "$out/bin/etcd-cloudflare-dns"
 	'';
 }
