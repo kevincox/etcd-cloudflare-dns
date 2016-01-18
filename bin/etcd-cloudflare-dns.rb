@@ -30,7 +30,7 @@ etcd = Etcd.client host:     etcd_uris[0].host,
 
 previous = {}
 
-def create_record(data)
+def create_record data
 	puts "Creating kevincox.ca #{data}"
 	
 	ttl = data['ttl']
