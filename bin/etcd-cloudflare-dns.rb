@@ -78,7 +78,8 @@ etcd = Etcd.client host:     etcd_uris[0].host,
                    ssl_key:  key
 
 def set_record new
-	old = $records[new.group_key][new.conflict_key]
+	old = $records[new.group_key]
+	old = old[new.conflict_key] if old
 	
 	ttl = new.ttl
 	ttl = if ttl.nil?
@@ -138,7 +139,12 @@ r.node.children.sort_by{|n| n.key}.each do |n|
 	name = File.basename n.key
 	recs = n.children.map{|c| Rec.from_etcd c.value}
 	
-	toremove = $records[recs.first.group_key].dup
+	toremove = $records[recs.first.group_key]
+	toremove = if toremove
+		toremove.dup
+	else
+		{}
+	end
 	
 	recs.each do |r|
 		toremove.delete r.conflict_key
