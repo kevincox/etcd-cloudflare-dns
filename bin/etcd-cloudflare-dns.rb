@@ -9,14 +9,63 @@ require 'pp'
 require 'cloudflare'
 require 'etcd'
 
+Rec = Struct.new :id,
+                 :type,
+                 :name,
+                 :value,
+                 :ttl,
+                 :cdn do
+	def self.from_etcd json
+		d = JSON.parse json
+		Rec.new d['id'], d['type'], d['name'], d['value'], d['ttl'], d['cdn']
+	end
+	
+	def group_key
+		"#{type}-#{name}"
+	end
+	
+	def conflict_key
+		value
+	end
+	
+	def == that
+		type == that.type and
+		name == that.name and
+		value == that.value and
+		ttl == that.ttl and
+		cdn == that.cdn
+	end
+	
+	# def to_s
+	# 	"#{name} #{type} #{value}"
+	# end
+end
 
-DOMAIN = ENV.delete 'DOMAIN'
+DOMAIN = ENV['CF_DOMAIN']
 
 $cf = CloudFlare.connection ENV['CF_API_KEY'], ENV['CF_EMAIL']
 r = $cf.rec_load_all DOMAIN
 recs = r['response']['recs']
 puts "Warning, didn't get all records!" if recs['has_more']
-records = recs['objs'].group_by{|r| r['name']}
+$records = recs['objs'].map do |r|
+	Rec.new r['rec_id'],
+	        r['type'],
+	        r['name'],
+	        r['content'],
+	        r['ttl'].to_i,
+	        r['service_mode'] == '1'
+end.group_by{|r| r.group_key}
+$records.each do |k, v|
+	h = $records[k] = {}
+	v.each do |r|
+		ck = r.conflict_key
+		raise "#{r} exists already!" if h.include? ck
+		h[r.conflict_key] = r
+	end
+end
+
+# Records that aren't being deleted because they are the only remaining record.
+$held_records = {}
 
 etcd_uris = ENV['ETCDCTL_PEERS'].split(',').map{|u| URI.parse(u)}
 crt = OpenSSL::X509::Certificate.new File.read ENV['ETCDCTL_CERT_FILE']
@@ -28,84 +77,76 @@ etcd = Etcd.client host:     etcd_uris[0].host,
                    ssl_cert: crt,
                    ssl_key:  key
 
-previous = {}
-
-def create_record data
-	puts "Creating kevincox.ca #{data}"
+def set_record new
+	old = $records[new.group_key][new.conflict_key]
 	
-	ttl = data['ttl']
+	ttl = new.ttl
 	ttl = if ttl.nil?
 		1 # Automatic
 	else
 		[ttl, 120].max
 	end
 	
-	r = $cf.rec_new(
-		DOMAIN,
-		data['type'],
-		data['name'],
-		data['value'],
-		ttl,
-		data['priority'],
-		data['service'],
-		data['srvname'],
-		data['protocol'],
-		data['weight'],
-		data['port'],
-		data['target'],
-		data['cdn']? '1' : '0')
+	if old.nil?
+		puts "Creating #{new}"
+		r = $cf.rec_new DOMAIN,
+		                new.type,
+		                new.name,
+		                new.value,
+		                ttl,
+		                nil,
+		                nil,
+		                nil,
+		                nil,
+		                nil,
+		                nil,
+		                nil,
+		                new.cdn ? '1' : '0'
+		new.id = r['response']['rec']['obj']['rec_id']
+	elsif old == new
+		puts "Record #{new} already exists, leaving."
+		new.id = old.id
+	else
+		puts "Updating #{new}"
+		$cf.rec_edit DOMAIN,
+		             new.type,
+		             old.id,
+		             new.name,
+		             new.value,
+		             ttl,
+		             new.cdn
+		
+		new.id = old.id
+	end
 	
-	# Return the new record ID.
-	r['response']['rec']['obj']['rec_id']
+	$records[new.group_key][new.conflict_key] = new
 end
+
+def delete_record rec
+	puts "Deleting #{rec}"
+	$cf.rec_delete DOMAIN, rec.id
+	$records[rec.group_key].delete rec.conflict_key
+end
+
+pp $records
 
 r = etcd.get '/services/', recursive: true
 last_index = r.etcd_index
 r.node.children.sort_by{|n| n.key}.each do |n|
-	next if n.children.empty? # Skip empty.
+	next if n.children.empty?
 	
-	domain = File.basename n.key
-	hosts  = n.children
-	pp domain, hosts.map{|c| c.value}
+	name = File.basename n.key
+	recs = n.children.map{|c| Rec.from_etcd c.value}
 	
-	toremove = records[domain]
-	toremove = if toremove
-		toremove.keep_if{|r| r['type'] == 'A'}
-		toremove.group_by{|r| r['content']}
-	else
-		{}
-	end
+	toremove = $records[recs.first.group_key].dup
 	
-	toremove = toremove.map do |k, v|
-		r = v.pop
-		v.each do |r|
-			puts 'Duplicate record:'
-			pp v
-			$cf.rec_delete DOMAIN, v['rec_id']
-		end
-		
-		[k, r]
-	end.to_h
-	
-	hosts.each do |host|
-		data = JSON.parse host.value
-		ip = data['value']
-		old = toremove.delete ip
-		dh = [domain, ip]
-		if old
-			previous[dh] = old['rec_id']
-			puts "Record A #{domain} -> #{host} already exists, leaving."
-		else
-			data['name'] = domain
-			previous[dh] = create_record data
-		end
+	recs.each do |r|
+		toremove.delete r.conflict_key
+		set_record r
 	end
 
 	toremove.each do |k, v|
-		puts 'Removing existing record:'
-		pp v
-		
-		$cf.rec_delete DOMAIN, v['rec_id']
+		delete_record v
 	end
 end
 
@@ -118,28 +159,13 @@ loop do
 	               index: last_index + 1
 	last_index = r.node.modified_index
 	
-	components = r.key.split '/'
-	unless components.length == 4
-		puts "Unexpected key #{r.key}"
-		next
-	end
-	dh = components[2, 3]
-	d, h = dh
-	
+	pp r
 	case r.action
 	when 'set'
-		next if previous.member? dh
-		
-		puts "Creating A #{d} -> #{h} 120"
-		data = JSON.parse r.value
-		data['name'] = d
-		previous[dh]  = create_record data
+		set_record Rec.from_etcd r.value
 	when 'delete'
-		id = previous.delete dh
-		next unless id
-		
-		puts "Removing A #{d} -> #{h}"
-		$cf.rec_delete DOMAIN, id
+		cs = r.key.split '/'
+		delete_record $records[cs[-2]][cs[-1]]
 	else
 		puts "Unknown action #{r.action.inspect}"
 		pp r
