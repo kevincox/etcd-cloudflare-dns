@@ -47,7 +47,7 @@ $cf = CloudFlare.connection ENV['CF_API_KEY'], ENV['CF_EMAIL']
 r = $cf.rec_load_all DOMAIN
 recs = r['response']['recs']
 puts "Warning, didn't get all records!" if recs['has_more']
-$records = recs['objs'].map do |r|
+$existing_records = recs['objs'].map do |r|
 	Rec.new r['rec_id'],
 	        r['type'],
 	        r['name'],
@@ -55,17 +55,16 @@ $records = recs['objs'].map do |r|
 	        r['ttl'].to_i,
 	        r['service_mode'] == '1'
 end.group_by{|r| r.group_key}
-$records.each do |k, v|
-	h = $records[k] = {}
+$existing_records.each do |k, v|
+	$existing_records[k] = h = {}
 	v.each do |r|
 		ck = r.conflict_key
 		raise "#{r} exists already!" if h.include? ck
-		h[r.conflict_key] = r
+		h[ck] = r
 	end
 end
 
-# Records that aren't being deleted because they are the only remaining record.
-$held_records = {}
+$managed_records = Hash.new {|h, k| h[k] = {}}
 
 etcd_uris = ENV['ETCDCTL_PEERS'].split(',').map{|u| URI.parse(u)}
 crt = OpenSSL::X509::Certificate.new File.read ENV['ETCDCTL_CERT_FILE']
@@ -78,7 +77,12 @@ etcd = Etcd.client host:     etcd_uris[0].host,
                    ssl_key:  key
 
 def set_record new
-	old = $records[new.group_key][new.conflict_key]
+	existing = $existing_records.delete new.group_key
+	if existing
+		old = existing.delete new.conflict_key
+	else
+		old = $managed_records[new.group_key][new.conflict_key]
+	end
 	
 	ttl = new.ttl
 	ttl = if ttl.nil?
@@ -119,16 +123,27 @@ def set_record new
 		new.id = old.id
 	end
 	
-	$records[new.group_key][new.conflict_key] = new
+	if existing
+		puts "Clearing group of #{new}"
+		existing.each{|k, v| delete_record v}
+	end
+	$managed_records[new.group_key][new.conflict_key] = new
 end
 
 def delete_record rec
 	puts "Deleting #{rec}"
-	$cf.rec_delete DOMAIN, rec.id
-	$records[rec.group_key].delete rec.conflict_key
+	
+	group = rec.group_key
+	existing = $managed_records[group]
+	
+	if existing.size == 1
+		puts "Not removing last record in group #{rec}"
+		$existing_records[group] = $managed_records.delete group
+	else
+		$cf.rec_delete DOMAIN, rec.id
+		$managed_records[group].delete rec.conflict_key
+	end
 end
-
-pp $records
 
 r = etcd.get '/services/', recursive: true
 last_index = r.etcd_index
@@ -137,8 +152,13 @@ r.node.children.sort_by{|n| n.key}.each do |n|
 	
 	name = File.basename n.key
 	recs = n.children.map{|c| Rec.from_etcd c.value}
+	group = recs.first.group_key
 	
-	toremove = $records[recs.first.group_key].dup
+	# This is a hack to not remove any records until we have conformed the
+	# existing ones and created new ones.
+	toremove = $existing_records.delete(group) or {}
+	$managed_records[group] = toremove
+	toremove = toremove.dup
 	
 	recs.each do |r|
 		toremove.delete r.conflict_key
@@ -159,13 +179,12 @@ loop do
 	               index: last_index + 1
 	last_index = r.node.modified_index
 	
-	pp r
 	case r.action
 	when 'set'
 		set_record Rec.from_etcd r.value
 	when 'delete'
 		cs = r.key.split '/'
-		delete_record $records[cs[-2]][cs[-1]]
+		delete_record $managed_records[cs[-2]][cs[-1]]
 	else
 		puts "Unknown action #{r.action.inspect}"
 		pp r
