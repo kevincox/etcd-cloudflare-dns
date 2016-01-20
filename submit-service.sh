@@ -13,7 +13,7 @@ After=nix-expr@${pkg##*/}.service
 Requires=nix-expr@${pkg##*/}.service
 
 [Service]
-Environment=DOMAIN=kevincox.ca
+Environment=CF_DOMAIN=kevincox.ca
 Environment=RUBYLIB=$pkg/bundle
 EnvironmentFile=/etc/kevincox-environment
 EnvironmentFile=/run/keys/cloudflare
