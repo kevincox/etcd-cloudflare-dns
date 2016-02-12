@@ -13,10 +13,9 @@ stdenv.mkDerivation {
 		(lib.hasPrefix (toString ./bin) name)
 	) ./.;
 	
-	__noChroot = true;
 	SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
 	
-	buildInputs = [ ruby bundler git tree ];
+	buildInputs = [ ruby bundler git ];
 	
 	buildPhase = ''
 		bundle install --standalone
