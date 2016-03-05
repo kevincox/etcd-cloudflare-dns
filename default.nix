@@ -15,7 +15,7 @@ stdenv.mkDerivation {
 	
 	SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
 	
-	buildInputs = [ ruby bundler git ];
+	buildInputs = [ ruby bundler git makeWrapper ];
 	
 	buildPhase = ''
 		bundle install --standalone
@@ -26,5 +26,8 @@ stdenv.mkDerivation {
 		mkdir -p "$out"
 		cp -rv bundle "$out"
 		install -Dm755 bin/etcd-cloudflare-dns.rb "$out/bin/etcd-cloudflare-dns"
+		
+		wrapProgram $out/bin/etcd-cloudflare-dns \
+			--set RUBYLIB "$out/bundle"
 	'';
 }
