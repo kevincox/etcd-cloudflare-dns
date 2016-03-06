@@ -156,7 +156,7 @@ r.node.children.sort_by{|n| n.key}.each do |n|
 	
 	# This is a hack to not remove any records until we have conformed the
 	# existing ones and created new ones.
-	toremove = $existing_records.delete(group) or {}
+	toremove = $existing_records.delete(group) || {}
 	$managed_records[group] = toremove
 	toremove = toremove.dup
 	
@@ -182,7 +182,7 @@ loop do
 	case r.action
 	when 'set'
 		set_record Rec.from_etcd r.value
-	when 'delete'
+	when 'delete', 'expire'
 		cs = r.key.split '/'
 		delete_record $managed_records[cs[-2]][cs[-1]]
 	else
