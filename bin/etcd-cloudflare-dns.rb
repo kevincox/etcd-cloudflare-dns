@@ -17,7 +17,8 @@ Rec = Struct.new :id,
                  :cdn do
 	def self.from_etcd json
 		d = JSON.parse json
-		Rec.new d['id'], d['type'], d['name'], d['value'], d['ttl'], d['cdn']
+		ttl = d['ttl'] ? [d['ttl'], 120].max : 1
+		Rec.new d['id'], d['type'], d['name'], d['value'], ttl, d['cdn']
 	end
 	
 	def group_key
