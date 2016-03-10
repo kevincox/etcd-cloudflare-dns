@@ -67,13 +67,13 @@ end
 
 $managed_records = Hash.new {|h, k| h[k] = {}}
 
-etcd_uris = ENV['ETCDCTL_PEERS'].split(',').map{|u| URI.parse(u)}
-crt = OpenSSL::X509::Certificate.new File.read ENV['ETCDCTL_CERT_FILE']
-key = OpenSSL::PKey::RSA.new File.read ENV['ETCDCTL_KEY_FILE']
+etcd_uris = ENV.fetch('ETCDCTL_PEERS').split(',').map{|u| URI.parse(u)}
+crt = OpenSSL::X509::Certificate.new File.read ENV.fetch 'ETCDCTL_CERT_FILE'
+key = OpenSSL::PKey::RSA.new File.read ENV.fetch 'ETCDCTL_KEY_FILE'
 etcd = Etcd.client host:     etcd_uris[0].host,
                    port:     etcd_uris[0].port || 80,
                    use_ssl:  etcd_uris[0].scheme.end_with?('s'),
-                   ca_file:  ENV['ETCDCTL_CA_FILE'],
+                   ca_file:  ENV.fetch('ETCDCTL_CA_FILE'),
                    ssl_cert: crt,
                    ssl_key:  key
 
