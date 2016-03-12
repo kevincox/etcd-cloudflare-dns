@@ -22,7 +22,11 @@ Rec = Struct.new :id,
 	end
 	
 	def group_key
-		"#{type}-#{name}"
+		if type == "AAAA"
+			"A-#{name}" # Group all "address" records together.
+		else
+			"#{type}-#{name}"
+		end
 	end
 	
 	def conflict_key
@@ -56,6 +60,7 @@ $existing_records = recs['objs'].map do |r|
 	        r['ttl'].to_i,
 	        r['service_mode'] == '1'
 end.group_by{|r| r.group_key}
+pp $existing_records
 $existing_records.each do |k, v|
 	$existing_records[k] = h = {}
 	v.each do |r|
