@@ -6,7 +6,7 @@ require 'uri'
 require 'openssl'
 require 'pp'
 
-require 'cloudflare'
+require 'rubyflare'
 require 'etcd'
 
 Rec = Struct.new :id,
@@ -17,7 +17,7 @@ Rec = Struct.new :id,
                  :cdn do
 	def self.from_etcd json
 		d = JSON.parse json
-		ttl = d['ttl'] ? [d['ttl'], 120].max : 1
+		ttl = [d['ttl'] || 0, 120].max
 		Rec.new d['id'], d['type'], d['name'], d['value'], ttl, d['cdn']
 	end
 	
@@ -37,7 +37,7 @@ Rec = Struct.new :id,
 		type == that.type and
 		name == that.name and
 		value == that.value and
-		ttl == that.ttl and
+		# ttl == that.ttl and
 		cdn == that.cdn
 	end
 	
@@ -46,21 +46,38 @@ Rec = Struct.new :id,
 	# end
 end
 
-DOMAIN = ENV['CF_DOMAIN']
+DOMAIN = ENV.fetch 'CF_DOMAIN'
+PREFIX = "/zones/#{DOMAIN}/"
 
-$cf = CloudFlare.connection ENV['CF_API_KEY'], ENV['CF_EMAIL']
-r = $cf.rec_load_all DOMAIN
-recs = r['response']['recs']
-puts "Warning, didn't get all records!" if recs['has_more']
-$existing_records = recs['objs'].map do |r|
-	Rec.new r['rec_id'],
-	        r['type'],
-	        r['name'],
-	        r['content'],
-	        r['ttl'].to_i,
-	        r['service_mode'] == '1'
-end.group_by{|r| r.group_key}
-pp $existing_records
+$cf = Rubyflare.connect_with ENV.fetch('CF_EMAIL'), ENV.fetch('CF_API_KEY')
+
+recs = []
+page = 1
+more = true
+
+while more
+	res = $cf.get "#{PREFIX}dns_records?page=#{page}&per_page=50"
+	info = res.body.fetch :result_info
+
+	recs.concat res.results
+	
+	more = page < info.fetch(:total_pages)
+	page += 1
+end
+
+pp recs
+
+recs.map! do |r|
+	Rec.new r[:id],
+	        r[:type],
+	        r[:name],
+	        r[:content],
+	        r[:ttl].to_i,
+	        r[:proxied]
+end
+$existing_records = recs.group_by{|r| r.group_key}
+recs = nil # GC please.
+
 $existing_records.each do |k, v|
 	$existing_records[k] = h = {}
 	v.each do |r|
@@ -69,6 +86,7 @@ $existing_records.each do |k, v|
 		h[ck] = r
 	end
 end
+pp $existing_records
 
 $managed_records = Hash.new {|h, k| h[k] = {}}
 
@@ -90,43 +108,32 @@ def set_record new
 		old = $managed_records[new.group_key][new.conflict_key]
 	end
 	
-	ttl = new.ttl
-	ttl = if ttl.nil?
-		1 # Automatic
-	else
-		[ttl, 120].max
-	end
-	
 	if old.nil?
 		puts "Creating #{new}"
-		r = $cf.rec_new DOMAIN,
-		                new.type,
-		                new.name,
-		                new.value,
-		                ttl,
-		                nil,
-		                nil,
-		                nil,
-		                nil,
-		                nil,
-		                nil,
-		                nil,
-		                new.cdn ? '1' : '0'
-		new.id = r['response']['rec']['obj']['rec_id']
+		
+		res = $cf.post "#{PREFIX}dns_records", {
+			type: new.type,
+			name: new.name,
+			content: new.value,
+			ttl: new.ttl,
+			proxied: new.cdn,
+		}
+		new.id = res.results.fetch :id
 	elsif old == new
-		puts "Record #{new} already exists, leaving."
+		# puts "Record #{new} already exists, leaving."
 		new.id = old.id
 	else
 		puts "Updating #{new}"
-		$cf.rec_edit DOMAIN,
-		             new.type,
-		             old.id,
-		             new.name,
-		             new.value,
-		             ttl,
-		             new.cdn
-		
-		new.id = old.id
+		pp old, new
+		res = $cf.put "#{PREFIX}dns_records/#{old.id}", {
+			type: new.type,
+			name: new.name,
+			content: new.value,
+			ttl: new.ttl,
+			proxied: new.cdn,
+		}
+		pp res
+		new.id = res.results.fetch :id
 	end
 	
 	if existing
@@ -134,6 +141,10 @@ def set_record new
 		existing.each{|k, v| delete_record v}
 	end
 	$managed_records[new.group_key][new.conflict_key] = new
+rescue
+	pp $!
+	pp $!.response if $!.respond_to? :response
+	raise $!
 end
 
 def delete_record rec
@@ -146,7 +157,7 @@ def delete_record rec
 		puts "Not removing last record in group #{rec}"
 		$existing_records[group] = $managed_records.delete group
 	else
-		$cf.rec_delete DOMAIN, rec.id
+		res = $cf.delete "#{PREFIX}dns_records/#{rec.id}"
 		$managed_records[group].delete rec.conflict_key
 	end
 end

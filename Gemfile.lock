@@ -1,24 +1,19 @@
-GIT
-  remote: git://github.com/b4k3r/cloudflare.git
-  revision: 91e7182f983b287f48d1b2aa6614563b6a8394ba
-  specs:
-    cloudflare (2.0.3)
-      json (~> 1)
-
 GEM
   remote: https://rubygems.org/
   specs:
+    curb (0.8.8)
     etcd (0.3.0)
       mixlib-log
-    json (1.8.3)
     mixlib-log (1.6.0)
+    rubyflare (0.1.0)
+      curb (~> 0.8.8)
 
 PLATFORMS
   ruby
 
 DEPENDENCIES
-  cloudflare!
   etcd (~> 0.3.0)
+  rubyflare (~> 0.1.0)
 
 BUNDLED WITH
-   1.11.2
+   1.12.5
