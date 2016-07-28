@@ -37,7 +37,7 @@ Rec = Struct.new :id,
 		type == that.type and
 		name == that.name and
 		value == that.value and
-		# ttl == that.ttl and
+		ttl == that.ttl and
 		cdn == that.cdn
 	end
 	
@@ -72,7 +72,7 @@ recs.map! do |r|
 	        r[:type],
 	        r[:name],
 	        r[:content],
-	        r[:ttl].to_i,
+	        r[:ttl],
 	        r[:proxied]
 end
 $existing_records = recs.group_by{|r| r.group_key}
