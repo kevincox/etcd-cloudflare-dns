@@ -18,7 +18,7 @@ in rec {
 		
 		SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
 		
-		buildInputs = [ ruby bundler git makeWrapper ];
+		buildInputs = [ curl ruby bundler git makeWrapper ];
 		
 		buildPhase = ''
 			bundle install --standalone
