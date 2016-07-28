@@ -43,7 +43,7 @@ in rec {
 			"/etc/kevincox-etcd"
 		];
 		env = {
-			CF_DOMAIN = "kevincox.ca";
+			CF_DOMAIN = "18ecb4e8ca9d031c2ce5a7ce24636656";
 		};
 		exec = [ "${out}/bin/etcd-cloudflare-dns" ];
 		user = "etcd-cloudflare-dns";
