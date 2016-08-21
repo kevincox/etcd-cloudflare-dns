@@ -38,6 +38,10 @@ in rec {
 		id = "/etcd-cloudflare-dns";
 		mem = 50;
 		
+		constraints = [
+			["etcd" "LIKE" "v3"]
+		];
+		
 		env-files = [
 			"/run/keys/cloudflare"
 			"/etc/kevincox-etcd"
