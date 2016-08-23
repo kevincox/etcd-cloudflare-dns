@@ -17,8 +17,14 @@ Rec = Struct.new :id,
                  :cdn do
 	def self.from_etcd json
 		d = JSON.parse json
+		type = d['type']
 		ttl = [d['ttl'] || 0, 120].max
-		Rec.new d['id'], d['type'], d['name'], d['value'], ttl, d['cdn']
+		value = if type == 'SRV'
+			d['value'].split
+		else
+			d['value']
+		end
+		Rec.new d['id'], type, d['name'], value, ttl, d['cdn']
 	end
 	
 	def group_key
@@ -30,7 +36,12 @@ Rec = Struct.new :id,
 	end
 	
 	def conflict_key
-		value
+		if type == "SRV"
+			# Match target and port.
+			"#{value[3]}:#{value[2]}"
+		else
+			value
+		end
 	end
 	
 	def == that
@@ -44,6 +55,34 @@ Rec = Struct.new :id,
 	# def to_s
 	# 	"#{name} #{type} #{value}"
 	# end
+	
+	def to_cloudflare
+		r = {
+			type: type,
+			name: name,
+			content: value,
+			ttl: ttl,
+			proxied: cdn,
+		}
+		
+		if type == 'SRV'
+			# CloudFlare makes us spell it out for them.
+			priority, weight, port, target = value
+			service, proto, *rest = name.split '.'
+			r[:content] = nil
+			r[:data] = {
+				priority: priority,
+				weight: weight,
+				port: port,
+				target: target,
+				service: service,
+				proto: proto,
+				name: rest.join('.'),
+			}
+		end
+		
+		r
+	end
 end
 
 DOMAIN = ENV.fetch 'CF_DOMAIN'
@@ -68,10 +107,17 @@ end
 pp recs
 
 recs.map! do |r|
+	type = r[:type]
+	value = if type == 'SRV'
+		r[:data].values_at(:priority, :weight, :port, :target)
+	else
+		r[:content]
+	end
+	
 	Rec.new r[:id],
-	        r[:type],
+	        type,
 	        r[:name],
-	        r[:content],
+	        value,
 	        r[:ttl],
 	        r[:proxied]
 end
@@ -110,14 +156,7 @@ def set_record new
 	
 	if old.nil?
 		puts "Creating #{new}"
-		
-		res = $cf.post "#{PREFIX}dns_records", {
-			type: new.type,
-			name: new.name,
-			content: new.value,
-			ttl: new.ttl,
-			proxied: new.cdn,
-		}
+		res = $cf.post "#{PREFIX}dns_records", new.to_cloudflare
 		new.id = res.results.fetch :id
 	elsif old == new
 		# puts "Record #{new} already exists, leaving."
@@ -125,13 +164,7 @@ def set_record new
 	else
 		puts "Updating #{new}"
 		pp old, new
-		res = $cf.put "#{PREFIX}dns_records/#{old.id}", {
-			type: new.type,
-			name: new.name,
-			content: new.value,
-			ttl: new.ttl,
-			proxied: new.cdn,
-		}
+		res = $cf.put "#{PREFIX}dns_records/#{old.id}", new.to_cloudflare
 		pp res
 		new.id = res.results.fetch :id
 	end
@@ -201,7 +234,7 @@ loop do
 		set_record Rec.from_etcd r.value
 	when 'delete', 'expire'
 		cs = r.key.split '/'
-		delete_record $managed_records[cs[-2]][cs[-1]]
+		delete_record $managed_records.fetch(cs[-2]).fetch(cs[-1])
 	else
 		puts "Unknown action #{r.action.inspect}"
 		pp r
